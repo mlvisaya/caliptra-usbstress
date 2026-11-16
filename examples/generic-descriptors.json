@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "settings": {
+    "profile": "generic",
+    "vendor_id": 4660,
+    "product_id": 22136,
+    "configuration": 1,
+    "interface": 0,
+    "alternate": 0,
+    "tests": ["descriptors"],
+    "allow_data_tests": false
+  }
+}

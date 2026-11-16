@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77", "packaging>=24.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caliptra-usbstress"
+version = "0.1.0"
+description = "Configurable USB stress CLI and desktop GUI with generic and CST1 device profiles"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+readme = "README.md"
+dependencies = ["pyusb==1.3.1", "libusb-package==1.0.30.0", "libusb1==3.3.1"]
+
+[project.scripts]
+usbstress = "usb_stress:main"
+usbstress-gui = "usb_stress_gui:main"
+
+[tool.setuptools]
+py-modules = ["usb_stress", "usb_stress_config", "usb_stress_advanced", "usb_stress_gui", "usb_stress_runner", "usb_stress_discovery"]
