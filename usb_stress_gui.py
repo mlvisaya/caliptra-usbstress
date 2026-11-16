@@ -35,6 +35,7 @@ class Application:
         self.discovery_events = queue.Queue()
         self.scanning = False
         self.active_test: str | None = None
+        self.active_subtest: str | None = None
         self.active_started = 0.0
         self.status = tk.StringVar(value="Ready - refresh devices to discover connected USB devices.")
         root.title("USB Stress - Generic USB / CST1")
@@ -312,10 +313,14 @@ class Application:
             )
             self.results.delete(*self.results.get_children())
             self.active_test = None
+            self.active_subtest = None
             self.overall_progress.configure(maximum=len(settings.tests), value=0)
             self.progress_text.set(f"0 / {len(settings.tests)} tests completed")
             for name in settings.tests:
                 self.results.insert("", "end", iid=name, text=name, values=("NOT_RUN", ""))
+                from usb_stress import subtest_names
+                for child in subtest_names(name, settings):
+                    self.render_subtest(name, dict(name=child, status="NOT_RUN"))
             self.runner.start(settings, self.report)
             self.set_running(True)
             self.status.set(f"Running - report: {self.report}")
@@ -345,6 +350,17 @@ class Application:
         try:
             event = json.loads(line[len(PROGRESS_PREFIX):])
             name, status = event["name"], event["status"]
+            if "subtest" in event:
+                if status not in ("RUNNING", "PASS", "FAIL", "SKIP") or not self.results.exists(name):
+                    raise ValueError("Unknown subtest parent or status")
+                child = dict(event, name=event["subtest"])
+                node = self.render_subtest(name, child)
+                if status == "RUNNING":
+                    self.active_subtest = node
+                elif self.active_subtest == node:
+                    self.active_subtest = None
+                self.status.set(f"{name} / {child['name']}: {status}")
+                return True
             if status not in ("RUNNING", "PASS", "FAIL") or not self.results.exists(name):
                 raise ValueError("Unknown test or status in progress event")
             if status == "RUNNING":
@@ -355,6 +371,7 @@ class Application:
                 details = event.get("error") or ""
                 if self.active_test == name:
                     self.active_test = None
+                self.active_subtest = None
             self.results.item(name, values=(status, details))
             if status != "RUNNING":
                 self.render_details(name, event)
@@ -365,8 +382,20 @@ class Application:
             self.append_log(f"Invalid progress event: {error}\n")
         return True
 
+    def render_subtest(self, parent: str, event: dict) -> str:
+        node = f"{parent}::subtest::{event['name']}"
+        if not self.results.exists(node):
+            self.results.insert(parent, "end", iid=node, text=event["name"], values=("NOT_RUN", ""))
+        self.results.item(node, values=(event["status"], event.get("error") or event.get("reason") or ""))
+        self.render_details(node, {key: value for key, value in event.items()
+                                   if key in ("elapsed_seconds", "error", "details")})
+        if "executions" in event:
+            self.results.insert(node, "end", text="executions", values=("", event["executions"]))
+        return node
+
     def render_details(self, name: str, event: dict) -> None:
-        children = self.results.get_children(name)
+        children = [child for child in self.results.get_children(name)
+                    if not child.startswith(f"{name}::subtest::")]
         if children:
             self.results.delete(*children)
 
@@ -390,6 +419,8 @@ class Application:
                 insert(name, str(key), value)
         elif details is not None:
             insert(name, "details", details)
+        for child in event.get("subtests", []):
+            self.render_subtest(name, child)
 
     def update_progress(self) -> None:
         rows = self.results.get_children()
@@ -399,6 +430,7 @@ class Application:
 
     def completed(self, status: int) -> None:
         self.active_test = None
+        self.active_subtest = None
         failure = None
         try:
             if self.runner.forced:
@@ -482,7 +514,9 @@ class Application:
             elapsed = time.monotonic() - self.active_started
             self.results.item(self.active_test, values=("RUNNING", f"Elapsed: {elapsed:.1f} s"))
             if self.runner.stop_deadline is None:
-                self.status.set(f"Running {self.active_test} - {elapsed:.1f} s - report: {self.report}")
+                child = (f" / {self.results.item(self.active_subtest, 'text')}"
+                         if self.active_subtest and self.results.exists(self.active_subtest) else "")
+                self.status.set(f"Running {self.active_test}{child} - {elapsed:.1f} s - report: {self.report}")
         if self.closing and not self.runner.running:
             self.root.destroy()
             return

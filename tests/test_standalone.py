@@ -175,6 +175,54 @@ class StandaloneTests(unittest.TestCase):
         self.assertEqual([event["status"] for event in events], ["RUNNING", "FAIL"])
         self.assertEqual(events[-1]["error"], "injected failure")
 
+    def test_subtest_report_covers_all_executed_groups_and_full_speed_exclusions(self):
+        names = [name for name in usb_stress.SUPPORTED_TESTS if name != "descriptors"]
+        settings = Settings.cst1(vendor_id=0x424, product_id=7, tests=names,
+                                iterations=2, sizes=[1, 64, 65], duration=0.01)
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                usb_stress.PyUsbTransport, "open", return_value=Device(64)), redirect_stdout(io.StringIO()):
+            path = Path(directory) / "report.json"
+            self.assertEqual(usb_stress.run(settings, path), 0)
+            result = json.loads(path.read_text())
+        for case in result["tests"]:
+            self.assertEqual([item["name"] for item in case["subtests"]],
+                             usb_stress.subtest_names(case["name"], settings))
+            self.assertTrue(all(item["status"] in ("PASS", "SKIP") for item in case["subtests"]))
+        chapter9 = next(case for case in result["tests"] if case["name"] == "chapter9")
+        records = {item["name"]: item for item in chapter9["subtests"]}
+        self.assertEqual(records["GET_CONFIGURATION"]["executions"], 2)
+        self.assertEqual(records["Device qualifier"]["status"], "SKIP")
+        self.assertIn("high speed", records["Device qualifier"]["reason"])
+        self.assertEqual(records["Post-check bulk loopback"]["executions"], 1)
+
+    def test_failing_chapter9_subtest_preserves_completed_and_not_run_items_and_live_events(self):
+        device = Device()
+        original = device.standard_read
+        def malformed_qualifier(request_type, request, value, index, length):
+            if value == 0x600:
+                return bytes(10)
+            return original(request_type, request, value, index, length)
+        device.standard_read = malformed_qualifier
+        settings = Settings.cst1(vendor_id=0x424, product_id=7, tests=["chapter9", "bulk"])
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                usb_stress.PyUsbTransport, "open", return_value=device), redirect_stdout(output), redirect_stderr(io.StringIO()):
+            path = Path(directory) / "report.json"
+            self.assertEqual(usb_stress.run(settings, path, progress_events=True), 1)
+            result = json.loads(path.read_text())
+        records = {item["name"]: item for item in result["tests"][0]["subtests"]}
+        self.assertEqual(records["Interface string"]["status"], "PASS")
+        self.assertEqual(records["Device qualifier"]["status"], "FAIL")
+        self.assertIn("mismatch", records["Device qualifier"]["error"])
+        self.assertEqual(records["Other-speed configuration"]["status"], "NOT_RUN")
+        self.assertTrue(all(item["status"] == "NOT_RUN" for item in result["tests"][1]["subtests"]))
+        events = [json.loads(line[len(usb_stress.PROGRESS_PREFIX):])
+                  for line in output.getvalue().splitlines() if line.startswith(usb_stress.PROGRESS_PREFIX)]
+        qualifier = [event for event in events if event.get("subtest") == "Device qualifier"]
+        self.assertEqual([event["status"] for event in qualifier], ["RUNNING", "FAIL"])
+        self.assertEqual(events[-1]["status"], "FAIL")
+        self.assertNotIn("subtest", events[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

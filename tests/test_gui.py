@@ -189,5 +189,29 @@ class GuiTests(unittest.TestCase):
             self.app.completed(0)
             self.failure_dialog.assert_not_called()
 
+    def test_live_subtests_preserved_by_parent_result_and_do_not_count_as_groups(self):
+        from usb_stress import PROGRESS_PREFIX
+        self.app.results.insert("", "end", iid="chapter9", text="chapter9", values=("RUNNING", ""))
+        untouched = self.app.render_subtest("chapter9", {"name": "Interface string", "status": "NOT_RUN"})
+        self.app.results.item("chapter9", open=True)
+        for status in ("RUNNING", "FAIL"):
+            self.app.live_event(PROGRESS_PREFIX + json.dumps({
+                "name": "chapter9", "subtest": "Device qualifier", "status": status,
+                "executions": 0, "elapsed_seconds": 0.1, "error": "descriptor mismatch"}))
+        node = "chapter9::subtest::Device qualifier"
+        self.assertEqual(self.app.results.item(node, "values")[0], "FAIL")
+        self.assertEqual(self.app.results.item(untouched, "values")[0], "NOT_RUN")
+        self.app.update_progress()
+        self.assertEqual(self.app.progress_text.get(), "0 / 1 tests completed")
+        self.app.live_event(PROGRESS_PREFIX + json.dumps({
+            "name": "chapter9", "status": "FAIL", "error": "descriptor mismatch",
+            "subtests": [{"name": "Device qualifier", "status": "FAIL", "error": "descriptor mismatch",
+                          "executions": 0, "elapsed_seconds": 0.1}],
+        }))
+        self.assertTrue(self.app.results.exists(node))
+        self.assertTrue(self.app.results.item("chapter9", "open"))
+        self.assertEqual(self.app.progress_text.get(), "1 / 1 tests completed")
+        self.assertIsNone(self.app.active_subtest)
+
 if __name__ == "__main__":
     unittest.main()

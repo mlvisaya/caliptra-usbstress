@@ -71,8 +71,23 @@ usbstress-gui
    stream alongside the table. The final JSON report remains authoritative
    (including cleanup/report errors); live PASS events are per-test only.
    Expand a test row to inspect its key/value details, elapsed time and errors.
-   Nested objects and lists expand into further child rows; the JSON report
-   format is unchanged.
+   Nested objects and lists expand into further child rows; existing JSON
+   result fields are preserved.
+   Each test group also lists its implemented subtests before execution. Expand
+   the group to follow individual RUNNING/PASS/FAIL checks live, then expand a
+   subtest for elapsed time, successful execution count and failure details.
+   Repeated iterations update the same named subtest rather than adding one
+   row per packet. Unreached checks remain NOT_RUN; the qualifier/other-speed
+   checks that this suite only exercises at high speed show SKIP with a reason
+   at full speed. Overall progress still counts top-level groups only.
+   JSON test records include an additive `subtests` list with the same results.
+
+   For example, `chapter9` lists device and truncated descriptors, configuration
+   and bulk endpoint descriptors, GET_CONFIGURATION, device/interface/EP0
+   GET_STATUS, language/interface strings, qualifier/other-speed configuration,
+   alternate read-back, three invalid-descriptor STALL/recovery cases, and
+   post-check bulk loopback. These are our CST1 subset, not USB3CV test IDs or
+   a claim of full Chapter 9 compliance.
    The overall progress bar counts completed tests (PASS or FAIL), not bytes or
    predicted run time. The running test shows elapsed time in its table row.
    Aborted runs leave
